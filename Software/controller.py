@@ -8,10 +8,9 @@ from models import Moisture, Base
 def connect_serial():
     """Attempt to connect to ESP32 via serial"""
     try:
-        # Update these settings to match your ESP32
         ser = serial.Serial(
-            port='COM3',          # Update this to your COM port
-            baudrate=9600,
+            port='COM3',
+            baudrate=115200,
             bytesize=serial.EIGHTBITS,
             parity=serial.PARITY_NONE,
             stopbits=serial.STOPBITS_ONE,
@@ -42,6 +41,10 @@ def parse_data(line):
         
         print(f"Decoded line: {decoded_line}")
         
+        # Check if this is a status message
+        if "Started" in decoded_line or "Stopped" in decoded_line:
+            return {"status": decoded_line.strip()}
+            
         # Clean the data and split by comma
         cleaned_line = decoded_line.strip()
         if not cleaned_line:  # Skip empty lines
@@ -81,19 +84,43 @@ def main():
     if not ser:
         return
     
-    print("Starting data collection...")
-    print("Waiting for data from ESP32...")
+    print("\nCommands:")
+    print("s - Start data collection")
+    print("x - Stop data collection")
+    print("q - Quit program")
+    print("\nWaiting for command...")
     
     try:
         while True:
+            # Check for user input
+            if input_available():  # You'll need to implement this based on your OS
+                command = input().lower()
+                
+                if command == 's':
+                    ser.write(b'S')  # Send start command
+                    print("Sending start command...")
+                
+                elif command == 'x':
+                    ser.write(b'X')  # Send stop command
+                    print("Sending stop command...")
+                
+                elif command == 'q':
+                    print("Quitting...")
+                    break
+            
+            # Check for serial data
             if ser.in_waiting:
                 try:
-                    # Read raw bytes
                     line = ser.readline()
                     if line:
                         data = parse_data(line)
                         
                         if data:
+                            # Check if this is a status message
+                            if "status" in data:
+                                print(f"ESP32 Status: {data['status']}")
+                                continue
+                                
                             # Create new moisture reading
                             moisture_reading = Moisture(
                                 moisture_percent=data['moisture_percent'],
@@ -123,9 +150,27 @@ def main():
     except KeyboardInterrupt:
         print("\nStopping data collection...")
     finally:
+        # Send stop command before closing
+        ser.write(b'X')
+        time.sleep(0.5)  # Give ESP32 time to process the stop command
         ser.close()
         session.close()
         print("Connections closed")
+
+def input_available():
+    """Check if input is available (implementation depends on your OS)"""
+    import sys
+    import select
+    
+    # For Windows
+    if sys.platform == 'win32':
+        import msvcrt
+        return msvcrt.kbhit()
+    
+    # For Unix-like systems
+    else:
+        rlist, _, _ = select.select([sys.stdin], [], [], 0)
+        return len(rlist) > 0
 
 if __name__ == "__main__":
     main()
